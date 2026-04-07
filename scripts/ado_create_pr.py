@@ -28,6 +28,36 @@ def get_local_file_content(file_path: str) -> str:
         with open(file_path, 'r', encoding='utf-8') as f: return f.read()
     return ""
 
+def parse_sql_view(sql_text: str):
+    """Attempt to extract View Name and the SELECT column mappings from SQL text."""
+    import re
+    # Find View Name
+    view_match = re.search(r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:SECURE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)', sql_text, re.IGNORECASE)
+    view_name = view_match.group(1) if view_match else "Unknown View"
+    
+    # Try to find the SELECT block
+    # This is a basic regex that grabs text between the first SELECT and the last FROM
+    # It might not perfectly handle complex subqueries, but works well for standard views.
+    select_match = re.search(r'\bSELECT\b(.*?)\bFROM\b', sql_text, re.IGNORECASE | re.DOTALL)
+    columns = []
+    if select_match:
+        select_block = select_match.group(1).strip()
+        # Basic split by comma, trying to avoid splitting within parentheses (like functions)
+        paren_level = 0
+        current_col = []
+        for char in select_block:
+            if char == '(': paren_level += 1
+            elif char == ')': paren_level -= 1
+            elif char == ',' and paren_level == 0:
+                columns.append("".join(current_col).strip())
+                current_col = []
+                continue
+            current_col.append(char)
+        if current_col:
+            columns.append("".join(current_col).strip())
+            
+    return view_name, columns
+
 def generate_diff_summary(base_branch: str) -> str:
     diff_files = run_command(["git", "diff", "--name-only", f"origin/{base_branch}...HEAD"]).splitlines()
     summary_lines = []
@@ -38,23 +68,61 @@ def generate_diff_summary(base_branch: str) -> str:
         old_content = get_git_file_content(base_branch, file_path)
         new_content = get_local_file_content(file_path)
         
-        old_lines = [l.strip() for l in old_content.splitlines() if l.strip()]
-        new_lines = [l.strip() for l in new_content.splitlines() if l.strip()]
+        old_view, old_cols = parse_sql_view(old_content)
+        new_view, new_cols = parse_sql_view(new_content)
         
-        diff = list(difflib.ndiff(old_lines, new_lines))
-        added = [l[2:] for l in diff if l.startswith('+ ')]
-        removed = [l[2:] for l in diff if l.startswith('- ')]
-        
-        if not added and not removed: continue
-            
         summary_lines.append(f"### 📄 `{file_path}`")
-        if added:
-            summary_lines.append("**🟢 Added/Modified Lines:**")
-            for item in added: summary_lines.append(f"- `{item.rstrip(',')}`")
-        if removed:
-            summary_lines.append("**🔴 Removed/Old Lines:**")
-            for item in removed: summary_lines.append(f"- `{item.rstrip(',')}`")
-        summary_lines.append("")
+        if old_view != new_view and "Unknown" not in old_view:
+            summary_lines.append(f"**📝 View Name Changed:** `{old_view}` ➔ `{new_view}`")
+        else:
+            summary_lines.append(f"**🔗 Object:** `{new_view}`")
+            
+        added_cols = []
+        removed_cols = []
+        modified_mappings = []
+        
+        # Compare columns
+        # To determine mapping changes, we can look at the base column name or alias
+        old_col_map = {c.split()[-1].lower(): c for c in old_cols} if old_cols else {}
+        new_col_map = {c.split()[-1].lower(): c for c in new_cols} if new_cols else {}
+        
+        for alias, complete_def in new_col_map.items():
+            if alias not in old_col_map:
+                added_cols.append(complete_def)
+            elif old_col_map[alias] != complete_def:
+                modified_mappings.append(f"`{old_col_map[alias]}` ➔ `{complete_def}`")
+                
+        for alias, complete_def in old_col_map.items():
+            if alias not in new_col_map:
+                removed_cols.append(complete_def)
+                
+        if added_cols:
+            summary_lines.append("\n**🟢 Added Columns:**")
+            for c in added_cols: summary_lines.append(f"- `{c}`")
+            
+        if modified_mappings:
+            summary_lines.append("\n**🟡 Modified Mappings/Logic:**")
+            for c in modified_mappings: summary_lines.append(f"- {c}")
+            
+        if removed_cols:
+            summary_lines.append("\n**🔴 Removed Columns:**")
+            for c in removed_cols: summary_lines.append(f"- `{c}`")
+            
+        # Fallback to standard line diff if regex failed to extract anything meaningful
+        if not old_cols and not new_cols:
+            old_lines = [l.strip() for l in old_content.splitlines() if l.strip()]
+            new_lines = [l.strip() for l in new_content.splitlines() if l.strip()]
+            diff = list(difflib.ndiff(old_lines, new_lines))
+            add = [l[2:] for l in diff if l.startswith('+ ')]
+            rem = [l[2:] for l in diff if l.startswith('- ')]
+            if add:
+                summary_lines.append("**🟢 Added/Modified Lines:**")
+                for item in add: summary_lines.append(f"- `{item.rstrip(',')}`")
+            if rem:
+                summary_lines.append("**🔴 Removed/Old Lines:**")
+                for item in rem: summary_lines.append(f"- `{item.rstrip(',')}`")
+                
+        summary_lines.append("\n---")
         
     return "\n".join(summary_lines)
 
