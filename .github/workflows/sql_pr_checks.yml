@@ -1,0 +1,30 @@
+name: SQL Syntax Checking
+
+on:
+  pull_request:
+    paths:
+      - '**/*.sql'
+
+jobs:
+  check-sql-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Get Changed SQL Files
+        id: changed-sql-files
+        uses: tj-actions/changed-files@v39
+        with:
+          files: |
+            **/*.sql
+
+      - name: Run Syntax Check
+        if: steps.changed-sql-files.outputs.any_changed == 'true'
+        run: |
+          python scripts/check_sql_syntax.py ${{ steps.changed-sql-files.outputs.all_changed_files }}
