@@ -1,0 +1,43 @@
+trigger:
+  branches:
+    exclude:
+      - main
+      - master
+  paths:
+    include:
+      - '**/*.sql'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- checkout: self
+  persistCredentials: true # Allows script to run git commands against remote
+
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
+
+- script: |
+    # 1. Check for changed SQL files in this push vs base branch (assume master is the base)
+    git fetch origin master
+    CHANGED_FILES=$(git diff --name-only origin/master...HEAD | grep '\.sql$' || true)
+    
+    if [ -z "$CHANGED_FILES" ]; then
+      echo "No SQL changes detected. Skipping automation."
+      exit 0
+    fi
+    
+    # 2. Run Syntax check
+    echo "--- 🔍 Validating SQL Syntax ---"
+    python scripts/check_sql_syntax.py $CHANGED_FILES
+  displayName: 'Syntax Checking SQL Scripts'
+
+- script: |
+    echo "--- 📊 Generating SQL Definitions Diff vs 'master' ---"
+    # Call the ADO-specific python script to generate summary and create/update PR
+    python scripts/ado_create_pr.py --base master
+  displayName: 'Generate diff summary and auto-raise ADO Pull Request'
+  env:
+    # We must explicitly map the inherently secure ADO system token so python can read it to make the REST API call
+    ADO_PAT: $(System.AccessToken)
