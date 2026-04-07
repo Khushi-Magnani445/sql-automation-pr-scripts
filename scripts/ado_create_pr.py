@@ -31,30 +31,33 @@ def get_local_file_content(file_path: str) -> str:
 def parse_sql_view(sql_text: str):
     """Attempt to extract View Name and the SELECT column mappings from SQL text."""
     import re
-    # Find View Name
-    view_match = re.search(r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:SECURE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)', sql_text, re.IGNORECASE)
-    view_name = view_match.group(1) if view_match else "Unknown View"
+    # Find all View Names
+    view_matches = list(re.finditer(r'CREATE\s+(?:OR\s+REPLACE\s+)?(?:SECURE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)', sql_text, re.IGNORECASE))
     
-    # Try to find the SELECT block
-    # This is a basic regex that grabs text between the first SELECT and the last FROM
-    # It might not perfectly handle complex subqueries, but works well for standard views.
-    select_match = re.search(r'\bSELECT\b(.*?)\bFROM\b', sql_text, re.IGNORECASE | re.DOTALL)
+    if not view_matches:
+        return "Unknown View", []
+        
+    # Use the first view name found as the primary identifier
+    view_name = view_matches[0].group(1) 
+    
     columns = []
-    if select_match:
+    select_matches = re.finditer(r'\bSELECT\b(.*?)\bFROM\b', sql_text, re.IGNORECASE | re.DOTALL)
+    for select_match in select_matches:
         select_block = select_match.group(1).strip()
-        # Basic split by comma, trying to avoid splitting within parentheses (like functions)
         paren_level = 0
         current_col = []
         for char in select_block:
             if char == '(': paren_level += 1
             elif char == ')': paren_level -= 1
             elif char == ',' and paren_level == 0:
-                columns.append("".join(current_col).strip())
+                col_str = "".join(current_col).strip()
+                if col_str: columns.append(col_str)
                 current_col = []
                 continue
             current_col.append(char)
         if current_col:
-            columns.append("".join(current_col).strip())
+            col_str = "".join(current_col).strip()
+            if col_str: columns.append(col_str)
             
     return view_name, columns
 
