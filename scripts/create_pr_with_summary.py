@@ -155,30 +155,29 @@ def main():
     # 6. Create PR using GitHub CLI (`gh`)
     print("\n--- 🚀 Raising Pull Request ---")
     
+    # We use absolute path to gh to avoid path cache issues on Windows
+    gh_cmd = "C:/Program Files/GitHub CLI/gh.exe" if os.path.exists("C:/Program Files/GitHub CLI/gh.exe") else "gh"
+    
     # Check if gh cli exists
-    gh_check = subprocess.run(["gh", "--version"], capture_output=True)
+    gh_check = subprocess.run([gh_cmd, "--version"], capture_output=True)
     if gh_check.returncode != 0:
         print("❌ GitHub CLI (`gh`) is not installed or not in PATH. Cannot automatically raise PR.")
-        print("Here is the summary you can manually paste into your PR:")
-        print("================================")
-        print(pr_body)
-        print("================================")
         sys.exit(1)
         
     # Check if a PR already exists
-    existing_pr = subprocess.run(["gh", "pr", "view"], capture_output=True)
+    existing_pr = subprocess.run([gh_cmd, "pr", "view"], capture_output=True)
     if existing_pr.returncode == 0:
         print("A PR already exists for this branch. Updating the description instead.")
         with open("pr_body.txt", 'w', encoding='utf-8') as f:
             f.write(pr_body)
-        run_command(["gh", "pr", "edit", "--body-file", "pr_body.txt"])
+        run_command([gh_cmd, "pr", "edit", "--body-file", "pr_body.txt"])
         os.remove("pr_body.txt")
         print("✅ PR Updated!")
     else:
         # Create new
         with open("pr_body.txt", 'w', encoding='utf-8') as f:
             f.write(pr_body)
-        gh_pr_cmd = ["gh", "pr", "create", "--base", args.base, "--title", args.title, "--body-file", "pr_body.txt"]
+        gh_pr_cmd = [gh_cmd, "pr", "create", "--base", args.base, "--title", args.title, "--body-file", "pr_body.txt"]
         run_command(gh_pr_cmd)
         os.remove("pr_body.txt")
         print("✅ Pull Request successfully created!")
