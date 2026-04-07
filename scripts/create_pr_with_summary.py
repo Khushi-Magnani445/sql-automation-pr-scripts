@@ -19,12 +19,11 @@ def run_command(cmd: List[str], check=True) -> str:
         sys.exit(result.returncode)
     return result.stdout.strip()
 
-def get_git_file_content(branch: str, file_path: str) -> str:
+def get_git_file_content(base_branch: str, file_path: str) -> str:
     """Gets the content of a file from a specific git branch. If it fails, assumes file is new/empty."""
     try:
-        # Use git show to get the file at the target branch
-        # format: branch:filepath
-        cmd = ["git", "show", f"{branch}:{file_path}"]
+        # Use git show to get the file at the target branch (using origin)
+        cmd = ["git", "show", f"origin/{base_branch}:{file_path}"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             return result.stdout
@@ -136,8 +135,12 @@ def main():
 
     # 5. Get Diff Summary
     print(f"\n--- 📊 Generating SQL Definitions Diff vs '{args.base}' ---")
+    
+    # Pre-fetch the base branch from origin so local git knows about it
+    run_command(["git", "fetch", "origin", args.base], check=False)
+    
     # To find all files that diverged from base branch
-    diff_files = run_command(["git", "diff", "--name-only", f"{args.base}...{current_branch}"]).splitlines()
+    diff_files = run_command(["git", "diff", "--name-only", f"origin/{args.base}...{current_branch}"]).splitlines()
     
     if not diff_files:
         print("No differences found between branches.")
